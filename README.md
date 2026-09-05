@@ -1,3 +1,6 @@
+Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.0/airdcpp-away-gotify-notifier-1.0.0.tgz
+
+
 # airdcpp-away-gotify-notifier
 
 An AirDC++ Web Client extension that sends a [Gotify](https://gotify.net/) push
