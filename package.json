@@ -1,0 +1,44 @@
+{
+  "name": "airdcpp-away-gotify-notifier",
+  "version": "1.0.0",
+  "description": "Sends a Gotify push notification when you receive a private message while away mode is enabled in AirDC++.",
+  "license": "MIT",
+  "private": true,
+  "author": {
+    "name": "Jani"
+  },
+  "keywords": [
+    "airdcpp",
+    "airdcpp-extensions"
+  ],
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "npm run clean && cross-env NODE_ENV=production webpack",
+    "clean": "rimraf dist",
+    "start": "node devtools/watch.js ../dist/main.js",
+    "prepublishOnly": "npm run build",
+    "webpack": "webpack"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.19.0",
+    "@babel/plugin-transform-runtime": "^7.18.10",
+    "@babel/preset-env": "^7.19.0",
+    "@babel/runtime": "^7.19.0",
+    "airdcpp-apisocket": "^2.0.0",
+    "airdcpp-extension": "^1.5.1",
+    "airdcpp-extension-settings": "^1.2.1",
+    "babel-loader": "^9.1.2",
+    "core-js": "^3.25.1",
+    "cross-env": "^7.0.3",
+    "nodemon": "^2.0.19",
+    "rimraf": "^4.4.1",
+    "source-map-support": "^0.5.21",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^5.0.1"
+  },
+  "airdcpp": {
+    "apiVersion": 1,
+    "minApiFeatureLevel": 0,
+    "signalReady": false
+  }
+}
