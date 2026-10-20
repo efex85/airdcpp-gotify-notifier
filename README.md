@@ -5,9 +5,12 @@ Quick install: In the client, install from url: https://raw.githubusercontent.co
 
 An AirDC++ Web Client extension that sends a [Gotify](https://gotify.net/) push
 notification whenever you receive a new private message while away mode
-(idle or manual) is enabled.
+(idle or manual) is enabled, and (optionally, independent of away mode)
+whenever your nick is mentioned in a hub's public chat.
 
 ## How it works
+
+**Private messages (away mode only):**
 
 - Subscribes to the `system` API's `away_state` event to track whether away
   mode is currently off / idle / manual.
@@ -17,6 +20,20 @@ notification whenever you receive a new private message while away mode
 - When a message arrives from someone else while you're away, it POSTs a
   push message to your Gotify server using the app token you configure.
 - Ignores messages that are just echoes of your own outgoing messages.
+
+**Hub mentions (on by default, regardless of away mode):**
+
+- Fetches your current nick in every open hub (`GET /hubs`, which reports
+  `settings.nick` per hub — your nick can differ from hub to hub) and keeps
+  it updated via the `hub_created`/`hub_updated`/`hub_removed` events.
+- Subscribes to the `hubs` API's `hub_message` event across **all** hubs, and
+  checks each public chat message for your nick as a whole word (so "Jani"
+  matches "hey Jani!" but not "Janissary"). The Web API has no built-in
+  per-message "this mentions you" flag (only an aggregate unread counter), so
+  this matching happens locally in the extension.
+- Ignores your own messages, even ones that happen to contain your own nick.
+- Can be turned off entirely, or restricted to only fire while away (like
+  PMs), via settings — see below.
 
 ## 1. Create a Gotify application
 
@@ -66,8 +83,15 @@ and fill in:
   only want notifications while *manually* marked away, not when AirDC++
   auto-marks you away due to inactivity
 - **Include the message text in the notification** — on by default; turn
-  off if you don't want PM contents leaving your machine towards the
-  Gotify server (only the sender's name will be sent instead)
+  off if you don't want message contents leaving your machine towards the
+  Gotify server (only the sender's name/hub will be sent instead). Applies
+  to both PMs and hub mentions.
+- **Notify when your nick is mentioned in hub chat** — on by default; turns
+  the whole hub-mention feature on/off.
+- **Only notify about mentions while away** — off by default, meaning
+  mentions notify you regardless of away status (they're easy to miss in a
+  busy hub even while active). Turn this on if you'd rather mentions follow
+  the same away-only rule as PMs.
 
 You can right-click the extension in the extensions list and choose **Send
 test Gotify notification** to verify your settings without needing to wait
@@ -80,9 +104,10 @@ for an actual PM.
 - `src/index.js` — production entry point that wraps `main.js` with
   `ManagedExtension` (only used in the built `dist/main.js`).
 - `test/smoke.js` — a standalone Node script that exercises the core logic
-  (away-state tracking, self-message filtering, idle-away toggle) against a
-  mocked socket and a real local HTTP server standing in for Gotify. Run it
-  with `node test/smoke.js` after `npm install`.
+  (away-state tracking, self-message filtering, idle-away toggle, hub-mention
+  matching including the substring/word-boundary edge case, and both mention
+  settings) against a mocked socket and a real local HTTP server standing in
+  for Gotify. Run it with `node test/smoke.js` after `npm install`.
 
 ## References
 

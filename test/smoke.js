@@ -29,11 +29,13 @@ const server = http.createServer((req, res) => {
 // define the defaults; GET returns current effective values (defaults + overrides).
 let settingDefinitions = [];
 let settingOverrides = {};
+let hubsList = [];
 
 const socket = {
   logger: { warn: (...a) => console.log('[warn]', ...a), error: (...a) => console.log('[error]', ...a), info: () => {}, verbose: () => {} },
   get: async (path) => {
     if (path === 'system/away') return { id: 'manual' };
+    if (path === 'hubs') return hubsList;
     if (/^extensions\/.+\/settings$/.test(path)) {
       const values = {};
       settingDefinitions.forEach(def => { values[def.key] = def.default_value; });
@@ -147,6 +149,91 @@ async function main() {
   await new Promise(r => setTimeout(r, 100));
   assert.strictEqual(sentNotifications.length, 1, 'should not notify during idle away when disabled by setting');
   console.log('OK: idle-away notifications correctly suppressed when disabled');
+
+  // 5) Hub mention: our nick is mentioned by someone else, in a hub we're in
+  //    -> should notify (mentions default to firing regardless of away state)
+  Object.assign(settingOverrides, {
+    notify_idle_away: true,
+    notify_on_mentions: true,
+    mentions_only_when_away: false,
+  });
+  hubsList = [
+    { id: 42, identity: { name: 'Demo Hub' }, settings: { nick: 'Jani' } },
+  ];
+  listeners = {};
+  await extension.onStart({
+    system_info: { api_feature_level: 3, cid: 'MYOWNCID000000000000000000000000000000' },
+  });
+  listeners['system/away_state']({ id: 'off' }); // explicitly online/not away
+
+  assert(listeners['hubs/hub_message'], 'hub_message listener should be registered');
+
+  await listeners['hubs/hub_message']({
+    text: 'hey Jani, check this out',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 2, 'expected a mention notification even while online');
+  assert.strictEqual(sentNotifications[1].body.title, 'Mentioned by Bob in Demo Hub');
+  assert.strictEqual(sentNotifications[1].body.message, 'hey Jani, check this out');
+  console.log('OK: notified for a hub mention regardless of away state (default behavior)');
+
+  // 6) Nick appearing only as a substring of a longer word should NOT count
+  //    as a mention (e.g. "Janissary" shouldn't trigger on nick "Jani")
+  await listeners['hubs/hub_message']({
+    text: 'the Janissary armor dropped',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 2, 'a nick that is only a substring of a longer word must not match');
+  console.log('OK: substring-only matches (e.g. "Janissary" vs "Jani") are correctly ignored');
+
+  // 7) Our own messages in the hub (even if they happen to contain our nick)
+  //    must not trigger a self-notification
+  await listeners['hubs/hub_message']({
+    text: 'Jani here, just testing',
+    from: { nick: 'Jani', cid: 'MYOWNCID000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 2, 'should not notify about our own hub messages');
+  console.log('OK: ignored our own hub message even though it contains our nick');
+
+  // 8) Disabling "notify_on_mentions" turns the whole feature off
+  Object.assign(settingOverrides, { notify_on_mentions: false });
+  listeners = {};
+  await extension.onStart({
+    system_info: { api_feature_level: 3, cid: 'MYOWNCID000000000000000000000000000000' },
+  });
+  await listeners['hubs/hub_message']({
+    text: 'hey Jani are you there',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 2, 'mentions should not notify once the feature is disabled');
+  console.log('OK: "notify_on_mentions" setting fully disables mention notifications');
+
+  // 9) "mentions_only_when_away" restricts mentions to away mode, same as PMs
+  Object.assign(settingOverrides, { notify_on_mentions: true, mentions_only_when_away: true });
+  listeners = {};
+  await extension.onStart({
+    system_info: { api_feature_level: 3, cid: 'MYOWNCID000000000000000000000000000000' },
+  });
+  listeners['system/away_state']({ id: 'off' });
+  await listeners['hubs/hub_message']({
+    text: 'Jani, you around?',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 2, 'should not notify while online when mentions are restricted to away mode');
+
+  listeners['system/away_state']({ id: 'manual' });
+  await listeners['hubs/hub_message']({
+    text: 'Jani, you around?',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 3, 'should notify once away, when mentions are restricted to away mode');
+  console.log('OK: "mentions_only_when_away" correctly gates mentions behind away state');
 
   server.close();
   console.log('\nAll smoke tests passed.');
