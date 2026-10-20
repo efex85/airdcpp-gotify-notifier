@@ -1,5 +1,8 @@
 Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.1/airdcpp-away-gotify-notifier-1.0.1.tgz
 
+1.0.1 update
+* Added notification on nick mention. Can be disabled in plugin settings.
+
 
 # airdcpp-away-gotify-notifier
 
