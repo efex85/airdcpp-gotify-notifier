@@ -1,4 +1,4 @@
-Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.0/airdcpp-away-gotify-notifier-1.0.0.tgz
+Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.1/airdcpp-away-gotify-notifier-1.0.1.tgz
 
 
 # airdcpp-away-gotify-notifier
