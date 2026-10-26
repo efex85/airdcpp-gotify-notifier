@@ -235,6 +235,94 @@ async function main() {
   assert.strictEqual(sentNotifications.length, 3, 'should notify once away, when mentions are restricted to away mode');
   console.log('OK: "mentions_only_when_away" correctly gates mentions behind away state');
 
+  // 10) Bot-flagged senders are ignored for mention notifications (ADC hubs
+  //     expose a "bot" flag on the sender, e.g. for hub welcome/stats bots)
+  Object.assign(settingOverrides, {
+    mentions_only_when_away: false,
+    ignore_bot_mentions: true,
+    mention_grace_period_seconds: 0,
+  });
+  listeners = {};
+  await extension.onStart({
+    system_info: { api_feature_level: 3, cid: 'MYOWNCID000000000000000000000000000000' },
+  });
+  listeners['system/away_state']({ id: 'off' });
+
+  await listeners['hubs/hub_message']({
+    text: 'Welcome Jani to the hub!',
+    from: { nick: 'HubBot', cid: 'BOTCID00000000000000000000000000000000', flags: ['bot'] },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 3, 'mentions from bot-flagged users should be ignored');
+
+  await listeners['hubs/hub_message']({
+    text: 'Jani, still here?',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 4, 'non-bot mentions should still notify normally');
+  console.log('OK: mentions from bot-flagged users are ignored, non-bot mentions still work');
+
+  // 11) Mentions are ignored for a grace period right after (re)joining a hub,
+  //     to catch welcome-bot messages that aren't flagged as bots (e.g. NMDC).
+  //     Real-world hubs can send the welcome message in the very same instant
+  //     as the join (the "connected" state update and the welcome message
+  //     can race each other), so the grace period must be anchored to
+  //     hub_created (join start), not to the later connect_state:'connected'
+  //     transition - this simulates that race directly: hub_created fires,
+  //     then the welcome message arrives with NO delay at all, and only
+  //     *after that* does hub_updated report connect_state:'connected'.
+  Object.assign(settingOverrides, { mention_grace_period_seconds: 1 });
+  listeners = {};
+  await extension.onStart({
+    system_info: { api_feature_level: 3, cid: 'MYOWNCID000000000000000000000000000000' },
+  });
+
+  listeners['hubs/hub_created']({
+    id: 42,
+    identity: { name: 'Demo Hub' },
+    settings: { nick: 'Jani' },
+    connect_state: { id: 'connecting' },
+  });
+
+  // No delay at all here - the welcome message races the connect_state
+  // update in real hubs, so the test must cover the zero-delay case too.
+  await listeners['hubs/hub_message']({
+    text: 'Welcome back, Jani!',
+    from: { nick: 'WelcomeBot', cid: 'NMDCBOTCID000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 4, 'mentions in the very same instant as joining should be suppressed by the grace period');
+
+  // The "connected" state update lands after the welcome message - must not
+  // reset or otherwise disturb the grace period that's already running.
+  listeners['hubs/hub_updated']({
+    id: 42,
+    connect_state: { id: 'connected' },
+  });
+
+  await new Promise(r => setTimeout(r, 1100));
+  await listeners['hubs/hub_message']({
+    text: 'Jani, are you there now?',
+    from: { nick: 'Bob', cid: 'OTHERCID0000000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 5, 'mentions after the grace period has elapsed should notify normally');
+  console.log('OK: post-join grace period suppresses welcome-bot mentions sent the same instant as joining, then expires correctly');
+
+  // 12) A reconnect on an existing hub tab (no hub_created, just hub_updated
+  //     transitioning back into "connecting") restarts the grace period too.
+  listeners['hubs/hub_updated']({ id: 42, connect_state: { id: 'disconnected' } });
+  listeners['hubs/hub_updated']({ id: 42, connect_state: { id: 'connecting' } });
+
+  await listeners['hubs/hub_message']({
+    text: 'Welcome back, Jani!',
+    from: { nick: 'WelcomeBot', cid: 'NMDCBOTCID000000000000000000000000000' },
+  }, 42);
+  await new Promise(r => setTimeout(r, 100));
+  assert.strictEqual(sentNotifications.length, 5, 'mentions right after a reconnect should also be suppressed by the grace period');
+  console.log('OK: reconnecting on an existing hub tab also restarts the grace period');
+
   server.close();
   console.log('\nAll smoke tests passed.');
 }

@@ -17,6 +17,10 @@
 //       (identity.name). There's no per-message "this mentions you" flag in
 //       the API (only an aggregate unread "mention" counter per hub), so
 //       matching your nick against the message text is done locally here.
+//     - Hub user "bot" flag and the post-join grace period both exist to
+//       filter out hub welcome-bot messages that greet you by nick right
+//       after joining ("bot" only exists on ADC hubs; the grace period also
+//       covers NMDC hubs, which have no such flag at all).
 // - Gotify push message API:   https://gotify.net/docs/pushmsg
 
 const https = require('https');
@@ -71,6 +75,20 @@ const SettingDefinitions = [
     help: 'If enabled, nick-mention notifications follow the same away-mode rules as private messages above. If disabled (default), you get notified about mentions regardless of away status, since they\'re easy to miss in a busy hub even while active.',
     type: 'boolean',
     default_value: false,
+  }, {
+    key: 'ignore_bot_mentions',
+    title: 'Ignore mentions from bots',
+    help: 'Skips mention notifications from users flagged as a bot (ADC hubs only - this flag isn\'t available on NMDC hubs, see the grace period setting below for those).',
+    type: 'boolean',
+    default_value: true,
+  }, {
+    key: 'mention_grace_period_seconds',
+    title: 'Ignore mentions for this many seconds after joining a hub',
+    help: 'Covers hub welcome-bot messages that greet you by name right after connecting (common on NMDC hubs, which don\'t expose a "bot" flag at all). Set to 0 to disable.',
+    type: 'number',
+    min: 0,
+    max: 300,
+    default_value: 15,
   }
 ];
 
@@ -132,10 +150,15 @@ module.exports = function (socket, extension) {
   let removeHubUpdatedListener = null;
   let removeHubRemovedListener = null;
 
-  // hubId -> { nick, name }. Needed because your nick (and obviously the hub
-  // name) can differ per hub, and chat message events only give us the hub's
-  // session ID, not this information directly.
+  // hubId -> { nick, name, connectStateId }. Needed because your nick (and
+  // obviously the hub name) can differ per hub, and chat message events only
+  // give us the hub's session ID, not this information directly.
   const hubInfoById = new Map();
+
+  // hubId -> timestamp (ms) of the most recent transition into "connected",
+  // used for the post-join mention grace period (catches hub welcome-bot
+  // messages, including on NMDC hubs where there's no "bot" flag at all).
+  const hubConnectedAt = new Map();
 
   const updateHubInfo = (hub) => {
     if (!hub || hub.id === undefined) {
@@ -143,10 +166,36 @@ module.exports = function (socket, extension) {
     }
 
     const existing = hubInfoById.get(hub.id) || {};
+    const nextConnectStateId = (hub.connect_state && hub.connect_state.id) || existing.connectStateId;
+
+    // A hub re-entering "connecting" (manual reconnect, or recovering from a
+    // dropped connection on an existing tab) restarts the grace period too.
+    // This is a secondary trigger - the main one is onHubCreated below - kept
+    // here because an existing hub tab reconnecting doesn't fire hub_created
+    // again, only hub_updated.
+    if (nextConnectStateId === 'connecting' && existing.connectStateId !== 'connecting') {
+      hubConnectedAt.set(hub.id, Date.now());
+    }
+
     hubInfoById.set(hub.id, {
       nick: (hub.settings && hub.settings.nick) || existing.nick,
       name: (hub.identity && hub.identity.name) || existing.name,
+      connectStateId: nextConnectStateId,
     });
+  };
+
+  // Fired when a brand new hub session/tab is created, i.e. right when you
+  // start joining a hub - this is a more reliable grace-period anchor than
+  // waiting for connect_state to actually report "connected", because a
+  // hub's welcome/MOTD message can arrive in the very same instant as (or
+  // even fractionally before) that final state transition is reported, which
+  // would otherwise let it slip past the grace period entirely.
+  const onHubCreated = (hub) => {
+    if (hub && hub.id !== undefined) {
+      hubConnectedAt.set(hub.id, Date.now());
+    }
+
+    updateHubInfo(hub);
   };
 
   const isAwayNotificationEnabled = () => {
@@ -264,11 +313,25 @@ module.exports = function (socket, extension) {
       return;
     }
 
+    if (settings.getValue('ignore_bot_mentions') && Array.isArray(message.from.flags) && message.from.flags.includes('bot')) {
+      // ADC hubs flag bot users explicitly (e.g. hub welcome/stats bots)
+      return;
+    }
+
     const hubInfo = hubInfoById.get(hubId);
     if (!hubInfo || !hubInfo.nick) {
       // Don't know our own nick in this hub - can't safely match, so skip
       // rather than risk noisy false positives/negatives
       return;
+    }
+
+    const gracePeriodSeconds = settings.getValue('mention_grace_period_seconds');
+    if (gracePeriodSeconds > 0) {
+      const connectedAt = hubConnectedAt.get(hubId);
+      if (connectedAt && (Date.now() - connectedAt) < gracePeriodSeconds * 1000) {
+        // Likely a welcome-bot message greeting us by name right after joining
+        return;
+      }
     }
 
     if (!containsMention(message.text, hubInfo.nick)) {
@@ -310,11 +373,12 @@ module.exports = function (socket, extension) {
       socket.logger.error(`Failed to fetch open hub sessions: ${e.message}`);
     }
 
-    removeHubCreatedListener = await socket.addListener('hubs', 'hub_created', updateHubInfo);
+    removeHubCreatedListener = await socket.addListener('hubs', 'hub_created', onHubCreated);
     removeHubUpdatedListener = await socket.addListener('hubs', 'hub_updated', updateHubInfo);
     removeHubRemovedListener = await socket.addListener('hubs', 'hub_removed', (hub) => {
       if (hub && hub.id !== undefined) {
         hubInfoById.delete(hub.id);
+        hubConnectedAt.delete(hub.id);
       }
     });
 

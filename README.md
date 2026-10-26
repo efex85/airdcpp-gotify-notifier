@@ -1,7 +1,4 @@
-Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.1/airdcpp-away-gotify-notifier-1.0.1.tgz
-
-1.0.1 update
-* Added notification on nick mention. Can be disabled in plugin settings.
+Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.0/airdcpp-away-gotify-notifier-1.0.0.tgz
 
 
 # airdcpp-away-gotify-notifier
@@ -35,6 +32,11 @@ whenever your nick is mentioned in a hub's public chat.
   per-message "this mentions you" flag (only an aggregate unread counter), so
   this matching happens locally in the extension.
 - Ignores your own messages, even ones that happen to contain your own nick.
+- Ignores mentions from users flagged as **bots** (ADC hubs only — this is
+  where most hub welcome/stats/rules bots live), and ignores all mentions
+  for a short **grace period** right after you (re)join a hub, so a welcome
+  message that happens to greet you by name doesn't trigger a notification.
+  Both of these are configurable — see below.
 - Can be turned off entirely, or restricted to only fire while away (like
   PMs), via settings — see below.
 
@@ -95,6 +97,16 @@ and fill in:
   mentions notify you regardless of away status (they're easy to miss in a
   busy hub even while active). Turn this on if you'd rather mentions follow
   the same away-only rule as PMs.
+- **Ignore mentions from bots** — on by default. Skips mention notifications
+  when the sender is flagged as a bot by the hub (ADC hubs only — this is
+  the flag used for most welcome/rules/stats bots). Turn off if you actually
+  want to be notified when a bot's message happens to contain your nick.
+- **Grace period after joining a hub (seconds)** — `15` by default. Mentions
+  are ignored for this many seconds after you (re)connect to a hub, to
+  filter out "Welcome, <nick>!"-style greetings from bots that aren't
+  flagged as bots (common on NMDC hubs, which don't have an ADC-style bot
+  flag at all). Set to `0` to disable this and notify immediately on
+  (re)join.
 
 You can right-click the extension in the extensions list and choose **Send
 test Gotify notification** to verify your settings without needing to wait
