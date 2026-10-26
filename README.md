@@ -1,6 +1,7 @@
 Quick install: In the client, install from url: https://raw.githubusercontent.com/efex85/airdcpp-gotify-notifier/main/release/1.0.2/airdcpp-away-gotify-notifier-1.0.2.tgz
 
 v1.0.2: Added ignore options (ignore bots, ignore mentions x seconds from joining a hub - to avoid getting notifications from welcome messages)
+
 v1.0.1: Added nick mentions to notifier
 
 # airdcpp-away-gotify-notifier
